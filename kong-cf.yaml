@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Creates API gateway and services for my projects
+
+Parameters:
+
+  KeyName:
+    Description: The EC2 Key Pair to allow SSH access to the Kong host instance
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: jd-system
+
+  NodeInstanceType:
+    Description: EC2 instance type for the Kong host instance
+    Type: String
+    Default: t2.medium
+
+  VpcId:
+    Description: The VPC
+    Type: AWS::EC2::VPC::Id
+
+  SubnetId:
+    Description: Id of subnet for Kong host to join
+    Type: AWS::EC2::Subnet::Id
+
+Mappings:
+
+  RegionKongAmiMap:
+    eu-west-1:
+      HVM: ami-0be95b45dd1a21ae7
+    eu-west-2:
+      HVM: ami-04cca2917129d06c6
+    eu-central-1:
+      HVM: ami-08f6973b6f079bec4
+
+Resources: 
+
+  HttpSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: Enable HTTP traffic on port 80
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+
+  HttpsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: Enable HTTP traffic on port 443
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 443
+          IpProtocol: tcp
+          ToPort: 443
+
+  SshSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: Enable SSH access via port 22
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 22
+          IpProtocol: tcp
+          ToPort: 22
+
+  PingSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: Enable ICMP access via port 8
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: -1
+          IpProtocol: icmp
+          ToPort: -1
+
+  GatewayHostNetworkAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  AssociateGatewayHostNetworkAddress:
+    Type: AWS::EC2::EIPAssociation
+    DependsOn: GatewayHostNetworkAddress
+    Properties:
+      AllocationId: !GetAtt GatewayHostNetworkAddress.AllocationId
+      NetworkInterfaceId: !Ref GatewayHostNetworkInterface
+
+  GatewayHostNetworkInterface:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref SubnetId
+      Description: Interface for controlling traffic such as SSH
+      GroupSet: 
+        - !Ref HttpSecurityGroup
+        - !Ref HttpsSecurityGroup
+        - !Ref SshSecurityGroup
+        - !Ref PingSecurityGroup
+      SourceDestCheck: true
+
+  GatewayHost:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [ RegionKongAmiMap, !Ref "AWS::Region",  'HVM' ]
+      InstanceType: !Ref NodeInstanceType
+      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
+      KeyName: jd-system
+      NetworkInterfaces:
+        - NetworkInterfaceId: !Ref GatewayHostNetworkInterface
+          DeviceIndex: 0
+
+
+Outputs:
+  GatewayHostPublicIp:
+    Description: Gateway host public ip
+    Value: !GetAtt GatewayHost.PublicIp
+
